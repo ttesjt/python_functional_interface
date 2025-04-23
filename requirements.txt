@@ -1,0 +1,11 @@
+# Core dependencies
+mediapipe==0.10.9
+opencv-python==4.9.0.80
+numpy>=1.23
+Pillow>=9.0.0
+
+# GUI (built-in with Python, but just noted for clarity)
+# Tkinter is included with standard Python installs on most systems.
+# If using Linux, you may need: sudo apt install python3-tk
+
+# No need to list tkinter or csv/json—they are in the standard library
