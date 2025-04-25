@@ -9,13 +9,12 @@ import mediapipe as mp
 
 class MediaPipeDataGeneratorUnit(FunctionalUnit):
     title = "MediaPipe Data Generator"
-    description = "Select a video file to process with MediaPipe and extract landmarks."
+    description = "Select a video file to process with MediaPipe and extract full landmarks."
 
     def setup(self, parent):
         self.video_path = ""
         self.export_path = os.getcwd()
 
-        # UI Elements
         tk.Label(parent, text="Video File:").pack(anchor="w")
         self.video_entry = tk.Entry(parent, width=60)
         self.video_entry.pack()
@@ -96,11 +95,10 @@ class MediaPipeDataGeneratorUnit(FunctionalUnit):
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
         out = cv2.VideoWriter(output_video_path, fourcc, fps, (w, h))
 
-        selected_pose_indices = [0, 2, 5, 9, 10, 11, 12, 13, 14, 15, 16, 24, 23]
+        # Prepare headers
         csv_headers = ["frame"]
-        csv_headers += [f"pose_{i}_x" for i in selected_pose_indices]
-        csv_headers += [f"pose_{i}_y" for i in selected_pose_indices]
-        csv_headers += ["left_hand_area", "right_hand_area"]
+        csv_headers += [f"pose_{i}_{c}" for i in range(33) for c in ['x', 'y', 'z', 'visibility', 'presence']]
+        csv_headers += [f"hand{h}_{i}_{c}" for h in ['L', 'R'] for i in range(21) for c in ['x', 'y', 'z', 'presence']]
 
         csv_data = []
         frame_index = 0
@@ -117,47 +115,44 @@ class MediaPipeDataGeneratorUnit(FunctionalUnit):
 
             row = [frame_index]
 
+            # Pose landmarks
             if pose_results.pose_landmarks:
-                for i in selected_pose_indices:
-                    lm = pose_results.pose_landmarks.landmark[i]
-                    row.append(lm.x)
-                for i in selected_pose_indices:
-                    lm = pose_results.pose_landmarks.landmark[i]
-                    row.append(lm.y)
+                for i, lm in enumerate(pose_results.pose_landmarks.landmark):
+                    row += [lm.x, lm.y, lm.z, lm.visibility, lm.presence]
             else:
-                row += [0] * len(selected_pose_indices) * 2
+                row += [0] * 33 * 5
 
-            handedness_dict = {}
-            if hand_results.multi_handedness:
-                for idx, hand_info in enumerate(hand_results.multi_handedness):
+            # Hand landmarks (left & right)
+            left_hand = [0] * 21 * 4
+            right_hand = [0] * 21 * 4
+            if hand_results.multi_handedness and hand_results.multi_hand_landmarks:
+                for i, hand_info in enumerate(hand_results.multi_handedness):
                     label = hand_info.classification[0].label.lower()
-                    handedness_dict[label] = idx
-
-            def get_hand_area(idx):
-                if idx is None or idx >= len(hand_results.multi_hand_landmarks):
-                    return 0
-                landmarks = hand_results.multi_hand_landmarks[idx]
-                points = []
-                for lm in landmarks.landmark:
-                    px = int(lm.x * w)
-                    py = int(lm.y * h)
-                    points.append([px, py])
-                if len(points) < 3:
-                    return 0
-                hull = cv2.convexHull(np.array(points))
-                return int(cv2.contourArea(hull))
-
-            left_area = get_hand_area(handedness_dict.get("left"))
-            right_area = get_hand_area(handedness_dict.get("right"))
-            row += [left_area, right_area]
+                    hand_landmarks = hand_results.multi_hand_landmarks[i]
+                    data = []
+                    for lm in hand_landmarks.landmark:
+                        data += [lm.x, lm.y, lm.z, lm.presence]
+                    if label == "left":
+                        left_hand = data
+                    elif label == "right":
+                        right_hand = data
+            row += left_hand + right_hand
 
             csv_data.append(row)
 
+            # Draw landmarks
             if pose_results.pose_landmarks:
                 mp_drawing.draw_landmarks(image, pose_results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
+
+            blue_spec = mp_drawing.DrawingSpec(color=(255, 0, 0), thickness=2, circle_radius=2)
             if hand_results.multi_hand_landmarks:
                 for hand_landmarks in hand_results.multi_hand_landmarks:
-                    mp_drawing.draw_landmarks(image, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+                    mp_drawing.draw_landmarks(
+                        image, hand_landmarks,
+                        mp_hands.HAND_CONNECTIONS,
+                        landmark_drawing_spec=blue_spec,
+                        connection_drawing_spec=blue_spec
+                    )
 
             cv2.putText(image, f"Frame: {frame_index}", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
